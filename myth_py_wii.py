@@ -15,6 +15,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 VERSION = "a.2"
 
 import cwiid, time, StringIO, sys, asyncore, socket, os
+import subprocess
 from math import log, floor, atan, sqrt, cos, exp
 
 # Note to self - list of good documentation:
@@ -293,8 +294,12 @@ class WiiMyth:
 					self.wm.enable(cwiid.FLAG_MESG_IFC | cwiid.FLAG_REPEAT_BTN)
 					self.wm.mesg_callback = self.wmcb
 					self.lastaction = time.time()
-					os.system("xset dpms force on")
-					print("Forcing on the display")
+					try:
+						subprocess.call(['xset dpms force on'.split(' ')])
+					except:
+						print "Subrocess failed to call xset"
+					else:
+						print "Forcing on the display"
 				else:
 					print "Retrying... "
 					print
