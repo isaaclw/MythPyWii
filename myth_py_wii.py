@@ -12,6 +12,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 # By Benjie Gillam https://github.com/benjie/MythPyWii
+VERSION = "a.2"
 
 import cwiid, time, StringIO, sys, asyncore, socket, os
 from math import log, floor, atan, sqrt, cos, exp
@@ -38,11 +39,11 @@ class MythSocket(asyncore.dispatcher):
 	buffer = ""
 	callbacks = []
 	oktosend = True
-	def __init__(self, owner):
+	def __init__(self, owner, host="localhost"):
 		self.owner = owner
 		asyncore.dispatcher.__init__(self)
 		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.connect(("localhost", 6546))
+		self.connect((host, 6546))
 	def handle_close(self):
 		print "Mythfrontend connection closed"
 		self.owner.socket_disconnect()
@@ -111,6 +112,9 @@ class WiiMyth:
 	firstPress = True
 	firstPressDelay = 0.5
 	maxButtons = 0
+	def __init__(self, host, myth_buttons):
+		self.host = host
+		self.myth_buttons = myth_buttons
 	#wii_rel = lambda v, axis: float(v - self.wii_calibration[0][axis]) / (
 	#	self.wii_calibration[1][axis] - self.wii_calibration[0][axis])
 	def wii_rel(self, v, axis):
@@ -138,7 +142,7 @@ class WiiMyth:
 				self.ms = None
 			return None
 		if self.ms is None:
-			self.ms = MythSocket(self)
+			self.ms = MythSocket(self, self.host)
 		print "Connected to a wiimote :)"
 		self.lastaction = time.time()
 		self.rumble()
@@ -190,26 +194,13 @@ class WiiMyth:
 					self.lasttime = self.lasttime + self.firstPressDelay
 					self.firstPress = False
 				# Stuff that doesn't need roll/etc calculations
-				if state["buttons"] == cwiid.BTN_HOME:
-					self.ms.cmd('key escape')
-				if state["buttons"] == cwiid.BTN_A:
-					self.ms.cmd('key enter')
-				if state["buttons"] == cwiid.BTN_MINUS:
-					self.ms.cmd('key d')
-				if state["buttons"] == cwiid.BTN_UP:
-					self.ms.cmd('key up')
-				if state["buttons"] == cwiid.BTN_DOWN:
-					self.ms.cmd('key down')
-				if state["buttons"] == cwiid.BTN_LEFT:
-					self.ms.cmd('key left')
-				if state["buttons"] == cwiid.BTN_RIGHT:
-					self.ms.cmd('key right')
-				if state["buttons"] == cwiid.BTN_PLUS:
-					self.ms.cmd('key p')
-				if state["buttons"] == cwiid.BTN_1:
-					self.ms.cmd('key i')
-				if state["buttons"] == cwiid.BTN_2:
-					self.ms.cmd('key m')
+
+				#call mythtv function bassed on btn_to_myth distionary
+				#aded by A.J. Ware 25/06/10
+				if state["buttons"] in self.myth_buttons:
+					self.ms.cmd(self.myth_buttons[state["buttons"]])
+				#end of mythtv by dictionary
+
 				# Do we need to calculate roll, etc?
 				# Currently only BTN_B needs this.
 				calcAcc = state["buttons"] & cwiid.BTN_B
@@ -316,6 +307,42 @@ class WiiMyth:
 			time.sleep(0.05)
 		print "Exited Safely"
 
+
+def readcfg(config):
+	""" Return dict object containing button translations  """
+	#set myth_py_wii defalts
+	btn_to_myth={cwiid.BTN_HOME:'key escape',cwiid.BTN_A:'key enter',
+	cwiid.BTN_MINUS:'key d',cwiid.BTN_UP:'key up',cwiid.BTN_DOWN:'key down',
+	cwiid.BTN_LEFT:'key left',cwiid.BTN_RIGHT:'key right',
+	cwiid.BTN_PLUS:'key p',cwiid.BTN_1:'key i',cwiid.BTN_2:'key m'}
+	try:	#keep defaults if config file does not exist :-)
+		file=open (config)
+		while True:
+			line=file.readline()
+			if line=="":	#end of file reached
+				break
+			if line[0]!="#":	#check for comment
+				var=line.split(',')
+				btn_to_myth[getattr(cwiid,var[0])]=var[1].rstrip('\n')
+	except:
+		pass
+	return btn_to_myth
+
+
 # Instantiate our class, and start.
-inst = WiiMyth()
-inst.main()
+if __name__ == '__main__':
+	import optparse
+	defaults={
+		'host': "localhost",
+		'config': "/etc/mythtv/wii.config" #default config file
+	}
+	parser = optparse.OptionParser(version="mythpywii %s" % VERSION)
+	parser.add_option("-m", "--mythtv",
+			dest="mythtv", default=defaults['host'])
+	parser.add_option("-c", "--config",
+			dest="config", default=defaults['config'])
+	(options, args) = parser.parse_args()
+
+	myth_buttons = readcfg(options.config)
+	inst = WiiMyth(options.mythtv, myth_buttons)
+	inst.main()
