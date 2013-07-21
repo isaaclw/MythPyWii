@@ -16,7 +16,9 @@ VERSION = "a.2"
 
 import cwiid, time, StringIO, sys, asyncore, socket, os
 import subprocess
+import logging
 from math import log, floor, atan, sqrt, cos, exp
+logger = logging.getLogger("mythpywii")
 
 # Note to self - list of good documentation:
 # cwiid: http://flx.proyectoanonimo.com/proyectos/cwiid/
@@ -46,18 +48,16 @@ class MythSocket(asyncore.dispatcher):
 		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.connect((host, 6546))
 	def handle_close(self):
-		print "Mythfrontend connection closed"
+		logger.info("Mythfrontend connection closed")
 		self.owner.socket_disconnect()
 		self.close()
 	def handle_read(self):
 		try:
 			self.data = self.data + self.recv(8192)
 		except:
-			print """
-[ERROR] The connection to Mythfrontend failed - is it running?
-If so, do you have the socket interface enabled?
-Please follow the instructions at http://www.benjiegillam.com/mythpywii-installation/
-"""
+			logger.error("The connection to Mythfrontend failed - is it running?")
+			logger.error("If so, do you have the socket interface enabled?")
+			logger.error("Please follow the instructions at http://www.benjiegillam.com/mythpywii-installation/")
 			self.handle_close()
 			return
 		while len(self.data)>0:
@@ -67,12 +67,12 @@ Please follow the instructions at http://www.benjiegillam.com/mythpywii-installa
 				result = self.data[:a]
 				self.data = self.data[a+len(self.prompt):]
 				if not self.firstData:
-					print ">>>", result
+					logger.debug(">>> %s" % result)
 					cb = self.callbacks.pop(0)
 					if cb:
 						cb(result)
 				else:
-					print "Logged in to MythFrontend"
+					logger.info("Logged in to MythFrontend")
 					self.firstData = False
 			else:
 				break;
@@ -81,7 +81,7 @@ Please follow the instructions at http://www.benjiegillam.com/mythpywii-installa
 	def handle_write(self):
 		a = self.buffer.find("\n")
 		sent = self.send(self.buffer[:a+1])
-		print "<<<", self.buffer[:sent-1]
+		logger.debug("<<< %s" % self.buffer[:sent-1])
 		self.buffer = self.buffer[sent:]
 		self.oktosend = False
 	def cmd(self, data, cb = None):
@@ -124,7 +124,7 @@ class WiiMyth:
 	def socket_disconnect(self):
 		if self.wm is not None:
 			#self.wm.led = cwiid.LED2_ON | cwiid.LED3_ON
-			print "About to close connection to the Wiimote"
+			logger.info("About to close connection to the Wiimote")
 			self.wm.close()
 			self.wm = None
 		return
@@ -133,7 +133,7 @@ class WiiMyth:
 		time.sleep(delay)
 		self.wm.rumble=0
 	def wmconnect(self):
-		print "Please open Mythfrontend and then press 1&2 on the wiimote..."
+		logger.info("Please open Mythfrontend and then press 1&2 on the wiimote...")
 		try:
 			self.wm = cwiid.Wiimote()
 		except:
@@ -144,7 +144,7 @@ class WiiMyth:
 			return None
 		if self.ms is None:
 			self.ms = MythSocket(self, self.host)
-		print "Connected to a wiimote :)"
+		logger.info("Connected to a wiimote")
 		self.lastaction = time.time()
 		self.rumble()
 		# Wiimote calibration data (cache this)
@@ -156,7 +156,7 @@ class WiiMyth:
 			if message[0] == cwiid.MESG_BTN:
 				state["buttons"] = message[1]
 			#elif message[0] == cwiid.MESG_STATUS:
-			#	print "\nStatus: ", message[1]
+			#	logger.debug("\nStatus: ", message[1])
 			elif message[0] == cwiid.MESG_ERROR:
 				if message[1] == cwiid.ERROR_DISCONNECT:
 					self.wm = None
@@ -165,11 +165,11 @@ class WiiMyth:
 						self.ms = None
 					continue
 				else:
-					print "ERROR: ", message[1]
+					logger.error(message[1])
 			elif message[0] == cwiid.MESG_ACC:
 				state["acc"] = message[1]
 			else:
-				print "Unknown message!", message
+				logger.warn("Unknown message! %s" % message)
 			laststate = self.laststate
 			if ('buttons' in laststate) and (laststate['buttons'] <> state['buttons']):
 				if state['buttons'] == 0:
@@ -216,7 +216,7 @@ class WiiMyth:
 						if (X>0): roll += 3.14159
 						else: roll -= 3.14159
 					pitch = atan(Y/Z*cos(roll))
-					#print "X: %f, Y: %f, Z: %f; R: %f, P: %f; B: %d    \r" % (X, Y, Z, roll, pitch, state["buttons"]),
+					#logger.debug( "X: %f, Y: %f, Z: %f; R: %f, P: %f; B: %d    \r" % (X, Y, Z, roll, pitch, state["buttons"])),
 					sys.stdout.flush()
 				if state["buttons"] & cwiid.BTN_B and state["buttons"] & cwiid.BTN_LEFT:
 					self.ms.cmd('play seek beginning')
@@ -256,7 +256,7 @@ class WiiMyth:
 							cmd += "key ,\n"
 						if speed <> 0:
 							cmd += "key "+str(abs(speed)-1)+"\n"
-						#print cmd
+						#logger.debug(cmd)
 					elif laststate['BTN_B']<>speed:
 						self.rumble(.05)
 						if speed == 0:
@@ -297,20 +297,20 @@ class WiiMyth:
 					try:
 						subprocess.call(['xset dpms force on'.split(' ')])
 					except:
-						print "Subrocess failed to call xset"
+						logger.error("Subrocess failed to call xset")
 					else:
-						print "Forcing on the display"
+						logger.info("Forcing on the display")
 				else:
-					print "Retrying... "
-					print
+					logger.warn("Retrying...")
+
 			asyncore.loop(timeout=0, count=1)
 			if self.lastaction < time.time() - 2100:
 				#2100 seconds is 35 minutes
 				#1200 seconds is 20 minutes
 				self.socket_disconnect()
-				print "35 minutes has passed since last action, disconnecting Wiimote"
+				logger.info("35 minutes has passed since last action, disconnecting Wiimote")
 			time.sleep(0.05)
-		print "Exited Safely"
+		logger.info("Exited Safely")
 
 
 def readcfg(config):
@@ -347,6 +347,12 @@ if __name__ == '__main__':
 	parser.add_option("-c", "--config",
 			dest="config", default=defaults['config'])
 	(options, args) = parser.parse_args()
+
+	logger.setLevel(logging.DEBUG)
+	handler = logging.StreamHandler()
+	formatter = logging.Formatter("%(asctime)s - [%(levelname)s] %(funcName)s:%(lineno)s[%(process)d] - %(message)s")
+	handler.setFormatter(formatter)
+	logger.addHandler(handler)
 
 	myth_buttons = readcfg(options.config)
 	inst = WiiMyth(options.mythtv, myth_buttons)
